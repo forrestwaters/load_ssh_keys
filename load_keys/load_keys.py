@@ -15,14 +15,14 @@ def connect_to_host(host):
 
 def pull_down_pubkey(ssh_connection, host):
     sftp_client = ssh_connection.open_sftp()
-    sftp_client.get('.ssh/id_rsa.pub', '{}'.format(str(host)))
+    sftp_client.get('.ssh/id_rsa.pub', host)
     sftp_client.close()
 
 
 def write_to_authorized_keys(host):
     with open('authorized_keys', 'a+') as auth_keys:
-        with open(host, 'r') as key:
-            ssh_key = key.read()
+        with open(host, 'r') as pubkey:
+            ssh_key = pubkey.read()
             auth_keys.write(ssh_key)
 
 
@@ -45,21 +45,22 @@ if __name__ == '__main__':
     args = parse_args()
     hosts = [host for host in args.file_with_hosts.readlines()]
 
-    with open('authorized_keys', 'w') as auth_keys:
-        auth_keys.write(args.default_keys.read())
+    # add default ssh keys to our authorized_keys file so we don't get locked out
+    with open('authorized_keys', 'w') as default_auth_keys:
+        default_auth_keys.write(args.default_keys.read())
 
     for server_ip in hosts:
-        connection = connect_to_host(server_ip)
-        connection.exec_command("ssh-keygen -t rsa -f .ssh/id_rsa -N ''")
-        pull_down_pubkey(connection, server_ip)
-        write_to_authorized_keys(server_ip)
-        try:
-            os.remove(server_ip)
-        except IOError:
-            LOGGER.warning('No key file found for host {}'.format(server_ip))
+        with connect_to_host(server_ip) as connection:
+            connection.exec_command("ssh-keygen -t rsa -f .ssh/id_rsa -N ''")
+            pull_down_pubkey(connection, server_ip)
+            write_to_authorized_keys(server_ip)
+            try:
+                os.remove(server_ip)
+            except IOError:
+                LOGGER.warning('No key file found for host {}'.format(server_ip))
 
     for server_ip in hosts:
-        connection = connect_to_host(server_ip)
-        upload_authorized_keys_file(connection)
+        with connect_to_host(server_ip) as connection:
+            upload_authorized_keys_file(connection)
 
     os.remove('authorized_keys')
